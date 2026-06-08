@@ -8,9 +8,18 @@ exports.getAllCustomers = async (req, res, next) => {
     // Merge injected filters into a combined query string for APIFeatures
     const combinedQuery = { ...req.query, ...(req.injectedQuery || {}) };
     
-    // Apply pre-filters injected by injectQuery middleware (direct MongoDB filter objects)
-    const baseQuery = req.preFilter ? Customer.find(req.preFilter) : Customer.find();
+    // Create query to get the total count matching the filters (without pagination)
+    const countFeatures = new APIFeatures(
+      req.preFilter ? Customer.find(req.preFilter) : Customer.find(),
+      combinedQuery
+    )
+      .filter()
+      .search();
     
+    const totalCount = await countFeatures.query.countDocuments();
+    
+    // Apply pagination on baseQuery
+    const baseQuery = req.preFilter ? Customer.find(req.preFilter) : Customer.find();
     const features = new APIFeatures(baseQuery, combinedQuery)
       .filter()
       .search()
@@ -18,7 +27,22 @@ exports.getAllCustomers = async (req, res, next) => {
       .paginate();
 
     const customers = await features.query;
-    res.status(200).json({ success: true, count: customers.length, data: customers });
+    
+    const limit = Number(combinedQuery.limit) || 10;
+    const pages = Math.ceil(totalCount / limit);
+    const page = Number(combinedQuery.page) || 1;
+
+    res.status(200).json({
+      success: true,
+      count: customers.length,
+      pagination: {
+        total: totalCount,
+        pages: pages || 1,
+        page,
+        limit
+      },
+      data: customers
+    });
   } catch (error) {
     next(error);
   }
